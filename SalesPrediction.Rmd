@@ -1,6 +1,6 @@
 ---
-title: "IST 707 Project: House Sale Price Prediction"
-author: "Mandeep Rana & Deepthi Manjunath"
+title: "House Sale Price Prediction"
+author: "Mandeep Rana"
 output: word_document
 
 ---
