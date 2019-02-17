@@ -1,6 +1,3 @@
-#IST 707 Project: House Sale Price Prediction
-#Team: Mandeep Rana, Deepthi Manjunath
-
 rm(list = ls())
 
 #PART 1: Descriptive and Exploratory Analysis
