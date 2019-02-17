@@ -1,0 +1,295 @@
+---
+title: "IST 707 Project: House Sale Price Prediction"
+author: "Mandeep Rana & Deepthi Manjunath"
+output: word_document
+
+---
+#PART 1: Descriptive and Exploratory Analysis
+#Loading Requirements
+```{r loading, message=FALSE, warning=FALSE}
+rm(list = ls())
+#install.packages("repr")
+#install.packages("ggplot2")
+#install.packages("readr")
+#install.packages("gplots")
+#install.packages("caret")
+#install.packages("forecast")
+#install.packages("reshape2")
+#install.packages("rpart")
+#install.packages("rpart.plot")
+#install.packages("randomForest")
+#install.packages("gridExtra")
+library(ggplot2) 
+library(readr) 
+library(gplots)
+library(repr)
+library(reshape2)
+library(caret)
+library(forecast)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(gridExtra)
+```
+
+```{r setwd}
+setwd("/Users/manu/Desktop/Fall'18/IST 707/proj")
+```
+
+#Reading Train and Test data
+```{r reading}
+train <- read.csv("all/train.csv", header = TRUE, stringsAsFactors = FALSE)
+test <- read.csv("all/test.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+#Checking for missing values in data
+```{r missing.data}
+
+missing.data <- train[!complete.cases(train),]
+#Looks like every row has missing value
+head(missing.data)
+nrow(missing.data)
+nrow(train)
+```
+
+#By looking at the data I could find many features that are not significant or have impact on house sale prices
+#Thus, selecting only the significant features
+```{r features}
+all.features <- names(train)
+all.features
+sig.features <- c('Id','MSZoning','Utilities', 'Neighborhood','BldgType','HouseStyle',
+                  'OverallQual','OverallCond','YearBuilt', 'ExterQual','ExterCond',
+                  'BsmtQual','BsmtCond','TotalBsmtSF','Heating','HeatingQC', 
+                  'CentralAir','Electrical','GrLivArea','BedroomAbvGr','KitchenAbvGr',
+                  'KitchenQual','TotRmsAbvGrd','Functional','Fireplaces','FireplaceQu',
+                  'GarageArea','GarageQual','GarageCond','OpenPorchSF','PoolArea',
+                  'Fence','MoSold','YrSold','SaleType','SaleCondition','SalePrice')
+```
+
+#creating subset of train set that will be used for prediction
+```{r subset}
+sub.train <- train[,sig.features]
+head(sub.train)
+ncol(sub.train)
+ncol(train)
+```
+
+#Let's understand and learn this new dataset that we have
+```{r data}
+summary(sub.train)
+```
+
+#Let's understand and learn more about target variable that is SalePrice - whether it is linear or non-linear
+```{r target.var}
+summary(sub.train$SalePrice)
+```
+
+#Plotting target varibale to see its distribution
+#Plot shows that the target variable is skewed so we will take log of it to get normal distribution
+```{r plot1}
+ggplot(sub.train, aes(x = SalePrice, fill = ..count..)) +
+  geom_histogram(binwidth = 10000) +
+  ggtitle("Sale Price Distribution") +
+  ylab("Number of houses") +
+  xlab("Sale Price")
+```
+
+#Plot shows that the target variable is now normally distributed 
+```{r plot2}
+sub.train$lSalePrice <- log(sub.train$SalePrice)
+ggplot(sub.train, aes(x = lSalePrice, fill = ..count..)) +
+  geom_histogram(binwidth = 0.05) +
+  ggtitle("Log Sale Price Distribution") +
+  ylab("Number of houses") +
+  xlab("Log of Sale Price")
+```
+
+#Feature Engineering to gain more knowledge of real estate business and impact of each feature on target variable
+
+#MSZoning
+#Plot shows that 'RL' and 'RM' has more number of houses. Thus, our focus should be these 2 zones for prediction.
+```{r plot3}
+ggplot(sub.train, aes(x = MSZoning, fill = MSZoning)) +
+  geom_bar() +
+  ggtitle("MSZoning Distribution") +
+  ylab("Number of houses") +
+  xlab("MSZoning")+geom_text(stat='count',aes(label=..count..),vjust=-0.1)
+```
+
+#Let's see how target variable is related to MSZoning
+#Plot shows that 'FV' is most expensive zone followed by 'RL'. 
+#However, something is strange here - how can 'C' zone have cheaper houses compared with 'FV' since 'FV' is a village area. Hmmm?
+#Maybe, there is some other factor that is leads to expensive houses in 'FV' zone.
+```{r plot4}
+ggplot(sub.train, aes(x = MSZoning, y=SalePrice, fill = MSZoning)) +
+  geom_boxplot() +
+  ggtitle("MSZoning Distribution") +
+  ylab("Number of houses") +
+  xlab("MSZoning")
+```
+
+#Is it the area? Let's check
+#The output shows that our assumption is correct - area makes houses in 'FV' zone expensive compared to 'C' zone.
+```{r math}
+aggregate(sub.train$GrLivArea, list(sub.train$MSZoning),FUN = mean)
+```
+
+#BldgType: Type of dwelling
+#Plot shows that minimum and maximum Sale Price is for 1st family home and mostly lies between 60,000-300,000
+#Other types lies in 80,000-200,000 sale price values
+```{r plot5}
+ggplot(sub.train, aes(x = SalePrice, y=..count.., fill=BldgType)) +
+  geom_histogram(binwidth = 10000) +
+  ggtitle("BldgType Distribution") +
+  ylab("Number of houses") +
+  xlab("SalePrice")
+```
+
+#OverallQual
+#Checking distribution of Sale Price on OverallQual
+#Plots shows - higher the ratings, higher is the sale price, therefore relation is symmetric
+```{r plot6}
+ggplot(sub.train, aes(x = SalePrice, fill=as.factor(OverallQual))) +
+  geom_histogram(binwidth = 15000) +
+  ggtitle("OverallQual Distribution") +
+  ylab("Number of houses") +
+  xlab("SalePrice")
+```
+
+#To determine what kind of houses are sold for higher prices, we perform corelation analysis of numeric and categorical variables with target variables
+#correlation with numeric features
+```{r plot7}
+g1<-ggplot(sub.train, aes(x=GrLivArea, y=SalePrice))+ 
+  geom_point(shape=1)+
+  geom_smooth(method=lm , color="blue", se=FALSE)+
+  ggtitle("Plot of SalePrice and GrLivArea")
+
+g2<-ggplot(sub.train, aes(x=TotalBsmtSF, y=SalePrice)) + 
+  geom_point(shape=1)+
+  geom_smooth(method=lm , color="blue", se=FALSE)+
+  ggtitle("Plot of SalePrice and TotalBsmtSF")
+
+g3<-ggplot(sub.train, aes(x=TotRmsAbvGrd, y=SalePrice)) + 
+  geom_point(shape=1)+
+  geom_smooth(method=lm , color="blue", se=FALSE)+
+  ggtitle("Plot of SalePrice and TotRmsAbvGrd")
+
+g4<-ggplot(sub.train, aes(x=GarageArea, y=SalePrice)) + 
+  geom_point(shape=1) +  
+  geom_smooth(method=lm , color="blue", se=FALSE)+
+  ggtitle("Plot of SalePrice and GarageArea")
+```
+
+#Plot shows that the correlation of traget varibale with these 4 features is linear - that is sale price will increase if values of these numeric feeatures increases
+```{r plot8}
+grid.arrange(g1,g2,g3,g4)
+```
+
+#correlation with target variables using heatmap and converting some categorical variables/factos into defined numeric features - feature engineering
+```{r factor}
+sub.train$ExterCond.new <- as.numeric(factor(sub.train$ExterCond, 
+                                             levels = c("Ex", "Fa","Gd", "TA","Po"),
+                                             labels = c(5,2,4,3,1) ,ordered = TRUE))
+sub.train$HeatingQC.new <- as.numeric(factor(sub.train$HeatingQC, 
+                                             levels = c("Ex", "Fa","Gd", "TA","Po"),
+                                             labels = c(5,2,4,3,1) ,ordered = TRUE))
+sub.train$CentralAir.new <- as.numeric(factor(sub.train$CentralAir, 
+                                              levels = c("N", "Y"),
+                                              labels = c(0,1) ,ordered = TRUE))
+
+heat <- c('SalePrice', 
+               'OverallQual','OverallCond','YearBuilt','ExterCond.new',
+               'TotalBsmtSF','HeatingQC.new', 
+               'CentralAir.new','GrLivArea','BedroomAbvGr','KitchenAbvGr',
+               'TotRmsAbvGrd','Fireplaces',
+               'GarageArea','OpenPorchSF','PoolArea',
+               'YrSold')
+heatmap.corr <- sub.train[,heat]
+```
+
+#Plotting correlation matrix
+#Plot shows - blue having positive correlation and red having negative correlation
+#From this correlation matrix we can see there are many features that should be paid attention to and has a significant impact on Sale Price
+```{r matrix}
+qplot(x=Var1, y=Var2, data=melt(cor(heatmap.corr, use="p")), fill=value, geom="tile") +
+  scale_fill_gradient2(low = "red", high = "blue", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Correlation") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 8, hjust = 1))+
+  ggtitle("Correlation Matrix") 
+```
+
+#Predictive Modelling
+#From above conclusion, we now consider these set of variables for linear model development
+```{r pred}
+new.model.var <- sub.train[,heat]
+new.model.var$lSalePrice <- log(new.model.var$SalePrice)
+```
+
+#Partitioning training data into train and validation set for prediction on test set
+```{r divide}
+part <- createDataPartition(new.model.var$SalePrice, p = 0.8, list = FALSE)
+train.part <- new.model.var[part,]
+valid.part <- new.model.var[-part,]
+```
+
+#Linear Regression
+#Training linear model and evaluating it using validation set
+```{r model1}
+model.lm <- lm(lSalePrice~., data = train.part[,-1])
+summary(model.lm)
+lm.pred <- predict(model.lm, newdata = valid.part[,c(-1,-ncol(valid.part))])
+difference <- valid.part$lSalePrice - lm.pred
+```
+
+#We can see the difference or the residual between the actuals and predicted
+```{r outcome}
+data.pack <- data.frame("Actuals:" = valid.part$lSalePrice, "Predicted:"= lm.pred, "Difference:"= difference)
+```
+
+#As we can see, we got RMSE as 0.13, which means accuracy is ~87%
+```{r perf.lm}
+accuracy(lm.pred, valid.part$lSalePrice)
+```
+
+#CART
+#training cart model and evaluating it's performance by running it on validation set
+```{r model2}
+model.cart <- rpart(lSalePrice~., data = train.part[,-1], control=rpart.control(cp=0.01))
+printcp(model.cart)
+prp(model.cart)
+rpart.plot(model.cart)
+```
+
+#predicting log of Sale Price numbers
+```{r outcome2}
+pred.cart <- predict(model.cart, newdata = valid.part[,c(-1,-ncol(valid.part))])
+```
+#As we can see, we got RMSE as 0.20, which means accuracy is ~80%
+```{r perf.cart}
+accuracy(pred.cart, valid.part$lSalePrice)
+```
+
+#Random Forest
+#training random forest model and we observe that more the tree/node size better will be the performance as the error will gradually decrease
+```{r model3}
+model.rf <- randomForest(lSalePrice~., data = train.part[,-1], ntree = 500, nodesize=10)
+plot(model.rf)
+```
+
+#Evaluating model perfromance by predicting numbers based on validation set
+```{r outcome3}
+pred.rf <- predict(model.rf, newdata = valid.part[,c(-1,-ncol(valid.part))])
+```
+
+#checking accuracy, we got RMSE as 0.12, which means accuracy is ~88%
+```{r perf.rf}
+accuracy(pred.rf, valid.part$lSalePrice)
+```
+
+#plotting the actuals vs predicted values - shown below
+```{r final.plot}
+plot(pred.rf, valid.part$lSalePrice, main="Plot of actuals vs predicted Sale Price (log)")
+abline(0,1)
+```
+
+
